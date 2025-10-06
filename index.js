@@ -76,34 +76,48 @@ function RitualsAccessory(log, config) {
         this.model_version = '2.0';
     }
 
-    this.service = new Service.Fan(this.name, 'AirFresher');
+this.service = new Service.HumidifierDehumidifier(this.name, 'Diffuser');
     this.service
-        .getCharacteristic(Characteristic.On)
+        .getCharacteristic(Characteristic.Active)
         .on('get', this.getCurrentState.bind(this))
         .on('set', this.setActiveState.bind(this));
-
+    
+    this.service
+        .getCharacteristic(Characteristic.CurrentHumidifierDehumidifierState)
+        .on('get', (callback) => {
+            callback(null, this.on_state ? Characteristic.CurrentHumidifierDehumidifierState.HUMIDIFYING : Characteristic.CurrentHumidifierDehumidifierState.INACTIVE);
+        });
+    
+    this.service
+        .getCharacteristic(Characteristic.TargetHumidifierDehumidifierState)
+        .on('get', (callback) => {
+            callback(null, Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER);
+        })
+        .on('set', (value, callback) => {
+            // Always set as HUMIDIFIER, ignore
+            callback();
+        });
+    
+    // Optional: If you want to keep speed control, tie it to Humidifier's "RotationSpeed"
     this.service
         .getCharacteristic(Characteristic.RotationSpeed)
         .setProps({
-            minValue: 0,   // HomeKit needs 0–100 %
+            minValue: 0,
             maxValue: 100,
             minStep: 1
         })
         .on('get', (callback) => {
-            // If off -> 0%, otherwise mapping 1..3 -> percentage values
             if (!this.on_state) return callback(null, 0);
-            const speed = this.fan_speed ?? 1; // 1..3
+            const speed = this.fan_speed ?? 1;
             const pct = speed === 1 ? 33 : speed === 2 ? 66 : 100;
             callback(null, pct);
         })
         .on('set', (value, callback) => {
-            // 1-3 intern values
             const pct = Math.max(0, Math.min(100, Math.round(Number(value))));
             const mapped = (pct >= 67) ? 3 : (pct >= 34) ? 2 : 1;
-
+    
             this.setFanSpeed(mapped, (err) => {
                 if (err) return callback(err);
-                // Slider auf die exakten Buckets schnappen lassen
                 const snapPct = mapped === 3 ? 100 : mapped === 2 ? 66 : 33;
                 try { this.service.updateCharacteristic(Characteristic.RotationSpeed, snapPct); } catch (_) {}
                 callback();
