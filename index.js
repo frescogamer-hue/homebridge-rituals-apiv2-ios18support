@@ -23,20 +23,18 @@ module.exports = function(homebridge) {
 };
 
 function RitualsAccessory(log, config) {
-    //logger = log;
     this.log = log;
     this.services = [];
     this.hub = config.hub || '';
     var dt = Math.floor(Math.random() * 10000) + 1;
 
-    // Add cache variables
     this.cache = {};
     this.cacheTimestamp = {};
-    this.cacheDuration = 6 * 1000; // Cache duration in milliseconds (e.g., 6 seconds)
+    this.cacheDuration = 6 * 1000;
 
     this.retryCount = 0;
     this.maxRetries = 3;
-    this.retryDelay = 10000; // 10 Sekunden
+    this.retryDelay = 10000;
 
     this.log.debug('RitualsAccessory -> init :: RitualsAccessory(log, config)');
 
@@ -76,52 +74,30 @@ function RitualsAccessory(log, config) {
         this.model_version = '2.0';
     }
 
-this.service = new Service.HumidifierDehumidifier(this.name, 'Diffuser');
+    // Keep as HumidifierDehumidifier service but simplify to ON/OFF only
+    this.service = new Service.HumidifierDehumidifier(this.name, 'Diffuser');
+    
+    // Active characteristic for ON/OFF control
     this.service
         .getCharacteristic(Characteristic.Active)
         .on('get', this.getCurrentState.bind(this))
         .on('set', this.setActiveState.bind(this));
     
+    // Current state - simplified to just INACTIVE or HUMIDIFYING
     this.service
         .getCharacteristic(Characteristic.CurrentHumidifierDehumidifierState)
         .on('get', (callback) => {
             callback(null, this.on_state ? Characteristic.CurrentHumidifierDehumidifierState.HUMIDIFYING : Characteristic.CurrentHumidifierDehumidifierState.INACTIVE);
         });
     
+    // Target state - always HUMIDIFIER (read-only)
     this.service
         .getCharacteristic(Characteristic.TargetHumidifierDehumidifierState)
         .on('get', (callback) => {
             callback(null, Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER);
         })
         .on('set', (value, callback) => {
-            // Always set as HUMIDIFIER, ignore
             callback();
-        });
-    
-    // Optional: If you want to keep speed control, tie it to Humidifier's "RotationSpeed"
-    this.service
-        .getCharacteristic(Characteristic.RotationSpeed)
-        .setProps({
-            minValue: 0,
-            maxValue: 100,
-            minStep: 1
-        })
-        .on('get', (callback) => {
-            if (!this.on_state) return callback(null, 0);
-            const speed = this.fan_speed ?? 1;
-            const pct = speed === 1 ? 33 : speed === 2 ? 66 : 100;
-            callback(null, pct);
-        })
-        .on('set', (value, callback) => {
-            const pct = Math.max(0, Math.min(100, Math.round(Number(value))));
-            const mapped = (pct >= 67) ? 3 : (pct >= 34) ? 2 : 1;
-    
-            this.setFanSpeed(mapped, (err) => {
-                if (err) return callback(err);
-                const snapPct = mapped === 3 ? 100 : mapped === 2 ? 66 : 33;
-                try { this.service.updateCharacteristic(Characteristic.RotationSpeed, snapPct); } catch (_) {}
-                callback();
-            });
         });
 
     this.serviceInfo = new Service.AccessoryInformation();
@@ -149,24 +125,13 @@ this.service = new Service.HumidifierDehumidifier(this.name, 'Diffuser');
             .setCharacteristic(Characteristic.Name, 'Genie Battery');
     }
 
-    //ChargingState.NOT_CHARGING (0)
-    //ChargingState.CHARGING (1)
-    //ChargingState.NOT_CHARGAEABLE (2)
-    //StatusLowBattery.BATTERY_LEVEL_NORMAL (0)
-    //StatusLowBattery.BATTERY_LEVEL_LOW (1)
-
-    // FilterMaintenance service: display fill level + scent
     this.serviceFilter = new Service.FilterMaintenance('Filter', 'AirFresher');
-
-    // Retrieve the default scent from memory
     this.serviceFilter.setCharacteristic(Characteristic.Name, this.fragance);
 
-    // Fill level as FilterLifeLevel in % (0 = empty, 100 = full)
     this.serviceFilter
         .getCharacteristic(Characteristic.FilterLifeLevel)
         .on('get', this.getFillState.bind(this));
 
-    // Trigger maintenance when the fill level is low
     this.serviceFilter
         .getCharacteristic(Characteristic.FilterChangeIndication)
         .on('get', (callback) => {
@@ -194,7 +159,6 @@ RitualsAccessory.prototype = {
         const storedHub = this.storage.get('hub');
         this.token = storedToken || null;
 
-        // Fallback: validate hub from storage
         if (!storedHub) {
             if (this.hub) {
                 this.log.warn('No hub found in storage. Using hub from config (first start): ' + this.hub);
@@ -205,13 +169,12 @@ RitualsAccessory.prototype = {
             this.log.debug(`Hub loaded from storage: ${storedHub}`);
         }
 
-        // Validate token
         if (!this.token) {
             this.log.debug('No valid token found – starting authentication…');
             this.authenticateV2();
         } else {
             this.log.debug('Token available – attempting to access hub data');
-            this.getHub(); // diese Methode macht jetzt den echten Request via makeAuthenticatedRequest
+            this.getHub();
         }
 
         this.log.debug('RitualsAccessory -> finish :: discover()');
@@ -376,7 +339,6 @@ RitualsAccessory.prototype = {
             });
     },
 
-    // Helper method to retry after retryDelay in a standardized way
     _scheduleRetry: function() {
         this.retryCount++;
         setTimeout(() => this.authenticateV2(), this.retryDelay);
@@ -415,7 +377,6 @@ RitualsAccessory.prototype = {
 
             that.log.debug(`RitualsAccessory -> apiv2/account/hubs OK :: ${body.length} Genies found`);
 
-            // Cache speichern
             that.cache.getHubData = body;
             that.cacheTimestamp.getHub = now;
 
@@ -445,7 +406,6 @@ RitualsAccessory.prototype = {
             that.storage.put('hublot', that.hublot);
             that.storage.put('hub', that.hub);
 
-            // TODO
             that.fragance = 'Unknown';
             that.storage.put('fragance', that.fragance);
 
@@ -462,7 +422,6 @@ RitualsAccessory.prototype = {
                     that.hublot = hub.hublot;
                     that.fragance = 'Unknown';
 
-                    // Ensure hub is also persisted and normalized when matching by config
                     that.hub = hub.hash;
                     that.storage.put('hub', that.hub);
 
@@ -519,41 +478,12 @@ RitualsAccessory.prototype = {
             that.log.debug(`fancRes received: ${JSON.stringify(fancRes)}`);
 
             that.on_state = fancRes.value === '1';
+            that.cache.on_state = that.on_state;
+            that.cacheTimestamp.getCurrentState = now;
 
-            if (that.on_state) {
-                // Nur wenn eingeschaltet, speedc abrufen TODO: Returns {}
-                that.makeAuthenticatedRequest('get', `apiv2/hubs/${hub}/attributes/speedc`, null, function(err2, speedRes) {
-                    if (err2) {
-                        that.log.debug(`Error while retrieving speedc: ${err2}`);
-                        return callback(err2);
-                    }
+            that.log.debug(`Current status -> on_state: ${that.on_state}`);
 
-                    that.log.debug(`speedRes received: ${JSON.stringify(speedRes)}`);
-
-                    if (that.on_state) {
-                        that.fan_speed = parseInt(speedRes.value) || 1; // wenn API leer, mind. 1
-                    } else {
-                        that.fan_speed = 1; // wenn aus, trotzdem min gültiger Wert
-                    }
-                    that.cache.fan_speed = that.fan_speed;
-                    that.cache.on_state = that.on_state;
-                    that.cacheTimestamp.getCurrentState = now;
-
-                    that.log.debug(`Current status -> on_state: ${that.on_state}, fan_speed: ${that.fan_speed}`);
-
-                    callback(null, that.on_state);
-                });
-            } else {
-                // Ausgeschaltet → keine speedc-Abfrage
-                that.fan_speed = 0;
-                that.cache.fan_speed = that.fan_speed;
-                that.cache.on_state = that.on_state;
-                that.cacheTimestamp.getCurrentState = now;
-
-                that.log.debug(`Current status -> on_state: ${that.on_state}, fan_speed: ${that.fan_speed}`);
-
-                callback(null, that.on_state);
-            }
+            callback(null, that.on_state);
         });
 
         this.log.debug('RitualsAccessory -> finish :: getCurrentState()');
@@ -567,7 +497,6 @@ RitualsAccessory.prototype = {
         if (this.cacheTimestamp.getFillState && (now - this.cacheTimestamp.getFillState) < this.cacheDuration) {
             that.log.debug('Using cached data for getFillState');
 
-            // Zusätzlich sicherstellen, dass der Duftname in HomeKit aktuell ist
             if (this.cache.fragrance_name) {
                 this.serviceFilter.updateCharacteristic(Characteristic.Name, this.cache.fragrance_name);
             }
@@ -581,7 +510,6 @@ RitualsAccessory.prototype = {
         }
         that.log.debug(`Retrieving fill level for hub: ${hub}`);
 
-        // 1. Retrieve fill level
         that.makeAuthenticatedRequest('get', `apiv2/hubs/${hub}/sensors/fillc`, null, function(err, fillRes) {
             if (err) {
                 that.log.debug(`Error while retrieving fillc: ${err}`);
@@ -590,17 +518,14 @@ RitualsAccessory.prototype = {
 
             that.log.debug(`fillRes received: ${JSON.stringify(fillRes)}`);
 
-            // fillRes.title is e.g. “50-60%”
             let fillPercent = 0;
             if (fillRes && fillRes.title) {
                 const match = fillRes.title.match(/(\d+)-(\d+)%/);
                 if (match) {
-                    // Average value from the range
                     const low = parseInt(match[1], 10);
                     const high = parseInt(match[2], 10);
                     fillPercent = Math.round((low + high) / 2);
                 } else {
-                    // In case only a single value like “80%” is returned
                     const singleMatch = fillRes.title.match(/(\d+)%/);
                     if (singleMatch) {
                         fillPercent = parseInt(singleMatch[1], 10);
@@ -608,31 +533,26 @@ RitualsAccessory.prototype = {
                 }
             }
 
-            // Clamp to 0–100 in case something goes wrong
             if (fillPercent < 0 || fillPercent > 100) {
                 fillPercent = 0;
             }
 
-            // Save cache
             that.cache.fill_level = fillPercent;
             that.cacheTimestamp.getFillState = now;
 
             that.log.debug(`Current fill level -> ${fillPercent}%`);
 
-            // 2. Retrieve fragrance note
             that.makeAuthenticatedRequest('get', `apiv2/hubs/${hub}/sensors/rfidc`, null, function(err2, fragRes) {
                 if (!err2 && fragRes && fragRes.title) {
                     const fragranceName = fragRes.title;
                     that.cache.fragrance_name = fragranceName;
                     that.log.debug(`Current fragrance note -> ${fragranceName}`);
 
-                    // HomeKit Filter-Namen aktualisieren
                     that.serviceFilter.updateCharacteristic(Characteristic.Name, fragranceName);
                 } else if (err2) {
                     that.log.debug(`Error while retrieving rfidc: ${err2}`);
                 }
 
-                // Now return callback with fill level
                 callback(null, fillPercent);
             });
         });
@@ -665,53 +585,6 @@ RitualsAccessory.prototype = {
 
             that.on_state = active;
             that.cache.on_state = active;
-            that.cacheTimestamp.getCurrentState = Date.now();
-
-            callback();
-        });
-    },
-
-    setFanSpeed: function(value, callback) {
-        const that = this;
-
-        this.log.info(`${that.name} :: Set FanSpeed to => ${value}`);
-
-        // If fan is off, turn it on first
-        if (!that.on_state) {
-            this.log.debug('Fan is off – turn it on first');
-
-            return this.setActiveState(true, function(err) {
-                if (err) {
-                    that.log.error(`Turning on before setting speed failed: ${err.message}`);
-                    return callback(err, that.fan_speed);
-                }
-
-                // Now set FanSpeed
-                that.setFanSpeed(value, callback);
-            });
-        }
-
-        // Fan is on – set FanSpeed directly
-        const hub = that.resolveHub();
-        if (!hub) {
-            return callback(new Error('Hub not resolved yet'), that.fan_speed);
-        }
-        const body = qs.stringify({ speedc: value.toString() });
-        const url = `apiv2/hubs/${hub}/attributes/speedc`;
-
-        that.log.debug(`POST URL: ${url}`);
-        that.log.debug(`POST Body (x-www-form-urlencoded): ${body}`);
-
-        that.makeAuthenticatedRequest('post', url, body, function(err, response) {
-            if (err) {
-                that.log.error(`Error while setting FanSpeed: ${err.message}`);
-                return callback(err, that.fan_speed);
-            }
-
-            that.log.debug(`Response from server: ${JSON.stringify(response)}`);
-
-            that.fan_speed = value;
-            that.cache.fan_speed = value;
             that.cacheTimestamp.getCurrentState = Date.now();
 
             callback();
