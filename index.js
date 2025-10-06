@@ -38,9 +38,7 @@ function RitualsAccessory(log, config) {
 
     this.log.debug('RitualsAccessory -> init :: RitualsAccessory(log, config)');
 
-    this.storage = new store(
-        path.join(os.homedir(), '.homebridge') + '/.uix-rituals-secrets_' + this.hub
-    );
+    this.storage = new store(path.join(os.homedir(), '.homebridge') + '/.uix-rituals-secrets_' + this.hub);
     this.user =
         path.join(os.homedir(), '.homebridge') +
         '/.uix-rituals-secrets_' +
@@ -76,29 +74,55 @@ function RitualsAccessory(log, config) {
 
     // Keep as HumidifierDehumidifier service but simplify to ON/OFF only
     this.service = new Service.HumidifierDehumidifier(this.name, 'Diffuser');
-    
-    // Active characteristic for ON/OFF control
+
+    // Remove optional controls that can surface extra UI
+    [
+      Characteristic.RelativeHumidityHumidifierThreshold,
+      Characteristic.RelativeHumidityDehumidifierThreshold,
+      Characteristic.RotationSpeed,
+      Characteristic.SwingMode,
+      Characteristic.LockPhysicalControls,
+      Characteristic.WaterLevel
+    ].forEach((c) => {
+      if (this.service.testCharacteristic(c)) {
+        this.service.removeCharacteristic(this.service.getCharacteristic(c));
+      }
+    });
+
+    // Only Active and simple state characteristics
     this.service
-        .getCharacteristic(Characteristic.Active)
-        .on('get', this.getCurrentState.bind(this))
-        .on('set', this.setActiveState.bind(this));
-    
-    // Current state - simplified to just INACTIVE or HUMIDIFYING
+      .getCharacteristic(Characteristic.Active)
+      .on('get', this.getCurrentState.bind(this))
+      .on('set', this.setActiveState.bind(this));
+
     this.service
-        .getCharacteristic(Characteristic.CurrentHumidifierDehumidifierState)
-        .on('get', (callback) => {
-            callback(null, this.on_state ? Characteristic.CurrentHumidifierDehumidifierState.HUMIDIFYING : Characteristic.CurrentHumidifierDehumidifierState.INACTIVE);
+      .getCharacteristic(Characteristic.CurrentHumidifierDehumidifierState)
+      .on('get', (callback) => {
+        callback(
+          null,
+          this.on_state
+            ? Characteristic.CurrentHumidifierDehumidifierState.HUMIDIFYING
+            : Characteristic.CurrentHumidifierDehumidifierState.INACTIVE
+        );
+      });
+
+    // Make TargetHumidifierDehumidifierState fixed and read-only; restrict validValues to only HUMIDIFIER
+    const targetChar = this.service.getCharacteristic(Characteristic.TargetHumidifierDehumidifierState);
+
+    targetChar.setProps({
+      validValues: [Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER]
+    });
+
+    targetChar
+      .on('get', (callback) => {
+        callback(null, Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER);
+      })
+      .on('set', (value, callback) => {
+        setImmediate(() => {
+          targetChar.updateValue(Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER);
+          callback();
         });
-    
-    // Target state - always HUMIDIFIER (read-only)
-    this.service
-        .getCharacteristic(Characteristic.TargetHumidifierDehumidifierState)
-        .on('get', (callback) => {
-            callback(null, Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER);
-        })
-        .on('set', (value, callback) => {
-            callback();
-        });
+      });
 
     this.serviceInfo = new Service.AccessoryInformation();
     this.serviceInfo
@@ -171,7 +195,9 @@ RitualsAccessory.prototype = {
 
         if (!this.token) {
             this.log.debug('No valid token found – starting authentication…');
-            this.authenticateV2();
+            this.authenticateV2AndThen(() => {
+                this.getHub();
+            });
         } else {
             this.log.debug('Token available – attempting to access hub data');
             this.getHub();
