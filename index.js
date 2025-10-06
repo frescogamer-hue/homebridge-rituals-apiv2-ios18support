@@ -73,26 +73,21 @@ function RitualsAccessory(log, config) {
     }
 
     // Keep as HumidifierDehumidifier service but simplify to ON/OFF only
-    // Bump subtype to ensure HomeKit re-learns characteristics
-    this.service = new Service.HumidifierDehumidifier(this.name, 'DiffuserV2');
+    this.service = new Service.HumidifierDehumidifier(this.name, 'Diffuser');
 
-    // Remove optional / undesired UI characteristics and default humidity
-    // Try removing CurrentRelativeHumidity if it exists to hide "Current Humidity"
-    const toRemove = [
+    // Remove optional controls that can surface extra UI
+    [
       Characteristic.RelativeHumidityHumidifierThreshold,
       Characteristic.RelativeHumidityDehumidifierThreshold,
       Characteristic.RotationSpeed,
       Characteristic.SwingMode,
       Characteristic.LockPhysicalControls,
-      Characteristic.WaterLevel,
-      Characteristic.CurrentRelativeHumidity
-    ];
-    for (const c of toRemove) {
-      try {
-        const ch = this.service.getCharacteristic(c);
-        this.service.removeCharacteristic(ch);
-      } catch (_) {}
-    }
+      Characteristic.WaterLevel
+    ].forEach((c) => {
+      if (this.service.testCharacteristic(c)) {
+        this.service.removeCharacteristic(this.service.getCharacteristic(c));
+      }
+    });
 
     // Only Active and simple state characteristics
     this.service
@@ -111,11 +106,13 @@ function RitualsAccessory(log, config) {
         );
       });
 
-    // Fix TargetHumidifierDehumidifierState to HUMIDIFIER and restrict UI
+    // Make TargetHumidifierDehumidifierState fixed and read-only; restrict validValues to only HUMIDIFIER
     const targetChar = this.service.getCharacteristic(Characteristic.TargetHumidifierDehumidifierState);
+
     targetChar.setProps({
       validValues: [Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER]
     });
+
     targetChar
       .on('get', (callback) => {
         callback(null, Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER);
@@ -126,24 +123,6 @@ function RitualsAccessory(log, config) {
           callback();
         });
       });
-
-    // Add WaterLevel to show fill percentage on the main tile
-    // (read-only; we update from fill sensor)
-    this.waterLevelChar = this.service.addCharacteristic(Characteristic.WaterLevel);
-    this.waterLevelChar.setProps({ minValue: 0, maxValue: 100 });
-    this.waterLevelChar.on('get', (cb) => {
-      const level = typeof this.cache.fill_level === 'number' ? this.cache.fill_level : 0;
-      cb(null, level);
-    });
-
-    // Also set ConfiguredName to mirror fragrance for better visibility in some Home apps
-    try {
-      this.configuredNameChar = this.service.getCharacteristic(Characteristic.ConfiguredName)
-        || this.service.addCharacteristic(Characteristic.ConfiguredName);
-      this._updateConfiguredName();
-    } catch (_) {
-      // Not all HAP versions support ConfiguredName on this service; ignore if unavailable
-    }
 
     this.serviceInfo = new Service.AccessoryInformation();
     this.serviceInfo
@@ -170,7 +149,6 @@ function RitualsAccessory(log, config) {
             .setCharacteristic(Characteristic.Name, 'Genie Battery');
     }
 
-    // Filter service: keep fragrance name and fill % here too
     this.serviceFilter = new Service.FilterMaintenance('Filter', 'AirFresher');
     this.serviceFilter.setCharacteristic(Characteristic.Name, this.fragance);
 
@@ -198,16 +176,6 @@ function RitualsAccessory(log, config) {
 }
 
 RitualsAccessory.prototype = {
-    _updateConfiguredName: function() {
-        try {
-            const fragrance = this.cache.fragrance_name || this.fragance || 'Unknown';
-            const configured = `${this.name} • ${fragrance}`;
-            if (this.configuredNameChar) {
-                this.configuredNameChar.updateValue(configured);
-            }
-        } catch(_) {}
-    },
-
     discover: function () {
         this.log.debug('RitualsAccessory -> init :: discover()');
 
@@ -557,11 +525,6 @@ RitualsAccessory.prototype = {
 
             if (this.cache.fragrance_name) {
                 this.serviceFilter.updateCharacteristic(Characteristic.Name, this.cache.fragrance_name);
-                this._updateConfiguredName();
-            }
-            // Update WaterLevel on main service
-            if (typeof this.cache.fill_level === 'number' && this.waterLevelChar) {
-                this.waterLevelChar.updateValue(this.cache.fill_level);
             }
 
             return callback(null, this.cache.fill_level);
@@ -605,23 +568,13 @@ RitualsAccessory.prototype = {
 
             that.log.debug(`Current fill level -> ${fillPercent}%`);
 
-            // Mirror fill into WaterLevel on the main service
-            try {
-                if (that.waterLevelChar) that.waterLevelChar.updateValue(fillPercent);
-            } catch(_) {}
-
-            // Get fragrance and mirror into Filter service Name and main service configured name
             that.makeAuthenticatedRequest('get', `apiv2/hubs/${hub}/sensors/rfidc`, null, function(err2, fragRes) {
                 if (!err2 && fragRes && fragRes.title) {
                     const fragranceName = fragRes.title;
                     that.cache.fragrance_name = fragranceName;
                     that.log.debug(`Current fragrance note -> ${fragranceName}`);
 
-                    try {
-                        that.serviceFilter.updateCharacteristic(Characteristic.Name, fragranceName);
-                    } catch(_) {}
-
-                    that._updateConfiguredName();
+                    that.serviceFilter.updateCharacteristic(Characteristic.Name, fragranceName);
                 } else if (err2) {
                     that.log.debug(`Error while retrieving rfidc: ${err2}`);
                 }
