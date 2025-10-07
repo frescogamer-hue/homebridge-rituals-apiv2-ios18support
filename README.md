@@ -1,10 +1,11 @@
-# Homebridge-Rituals-apiv2
+# Homebridge-Rituals-apiv2 (exposed as humidifier)
 
 This project is a update of homebridge-rituals by myluna08.
 It has been adapted to work with the current Rituals API (v2) using Axios.
+Modified by Frescogamer-hue to be exposed as a humidifer. the rest of the work is done by the other people that worked on this project before.
 
 > **Note:** This README and Projekt is adapted from the original [homebridge-rituals project by myluna08](https://github.com/myluna08/homebridge-rituals/tree/master).
-> Changes reflect the update to API v2 and the switch to Axios.
+> Changes reflect the update to API v2 and the switch to Axios and exposing it as humidifier.
 
 <img src="https://img.shields.io/badge/license-MIT-green"> [![npm version](https://img.shields.io/npm/v/homebridge-rituals-apiv2.svg)](https://www.npmjs.com/package/homebridge-rituals-apiv2)
 
