@@ -1,6 +1,6 @@
 # Homebridge-Rituals-apiv2 (exposed as humidifier)
 
-This project is a update of homebridge-rituals by myluna08.
+This project is a update of homebridge-rituals by myluna08 and the V2 of Quentin Ulmer.
 It has been adapted to work with the current Rituals API (v2) using Axios.
 Modified by Frescogamer-hue to be exposed as a humidifer. the rest of the work is done by the other people that worked on this project before.
 
