@@ -134,9 +134,9 @@ Rituals & Genie are registered trademarks of Rituals Cosmetics Enterprise B.V.
 ## 07. ChangeLog
 
 - 2.0.0.1 Exposing as humidifier:
-- Changed to humidifer
-- Changed to only on / off state
-- removed fan control since it was broken
+  - Changed to humidifer
+  - Changed to only on / off state
+  - removed fan control since it was broken
 
 - 2.0.0 Breaking Changes:
   - Migrated from legacy API (ocapi, api/account/hubs) to API v2 (apiv2/...)
