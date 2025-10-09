@@ -39,10 +39,7 @@ function RitualsAccessory(log, config) {
     this.log.debug('RitualsAccessory -> init :: RitualsAccessory(log, config)');
 
     this.storage = new store(path.join(os.homedir(), '.homebridge') + '/.uix-rituals-secrets_' + this.hub);
-    this.user =
-        path.join(os.homedir(), '.homebridge') +
-        '/.uix-rituals-secrets_' +
-        this.hub;
+    this.user = path.join(os.homedir(), '.homebridge') + '/.uix-rituals-secrets_' + this.hub;
     this.log.debug('RitualsAccessory -> storage path is :: ' + this.user);
 
     this.on_state;
@@ -66,16 +63,11 @@ function RitualsAccessory(log, config) {
     this.log.debug('RitualsAccessory -> fragance :: ' + this.fragance);
 
     var determinate_model = this.version.split('.');
-    if (determinate_model[determinate_model.length - 1] < 12) {
-        this.model_version = '1.0';
-    } else {
-        this.model_version = '2.0';
-    }
+    this.model_version = (determinate_model[determinate_model.length - 1] < 12) ? '1.0' : '2.0';
 
-    // Keep as HumidifierDehumidifier service but simplify to ON/OFF only
+    // HumidifierDehumidifier as Diffuser
     this.service = new Service.HumidifierDehumidifier(this.name, 'Diffuser');
 
-    // Remove optional controls that can surface extra UI
     [
       Characteristic.RelativeHumidityHumidifierThreshold,
       Characteristic.RelativeHumidityDehumidifierThreshold,
@@ -89,7 +81,6 @@ function RitualsAccessory(log, config) {
       }
     });
 
-    // Only Active and simple state characteristics
     this.service
       .getCharacteristic(Characteristic.Active)
       .on('get', this.getCurrentState.bind(this))
@@ -106,13 +97,10 @@ function RitualsAccessory(log, config) {
         );
       });
 
-    // Make TargetHumidifierDehumidifierState fixed and read-only; restrict validValues to only HUMIDIFIER
     const targetChar = this.service.getCharacteristic(Characteristic.TargetHumidifierDehumidifierState);
-
     targetChar.setProps({
       validValues: [Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER]
     });
-
     targetChar
       .on('get', (callback) => {
         callback(null, Characteristic.TargetHumidifierDehumidifierState.HUMIDIFIER);
@@ -127,10 +115,7 @@ function RitualsAccessory(log, config) {
     this.serviceInfo = new Service.AccessoryInformation();
     this.serviceInfo
         .setCharacteristic(Characteristic.Manufacturer, author)
-        .setCharacteristic(
-            Characteristic.Model,
-            'Rituals Genie ' + this.model_version
-        )
+        .setCharacteristic(Characteristic.Model, 'Rituals Genie ' + this.model_version)
         .setCharacteristic(Characteristic.SerialNumber, this.hublot)
         .setCharacteristic(Characteristic.FirmwareRevision, this.version);
 
@@ -138,17 +123,12 @@ function RitualsAccessory(log, config) {
         this.serviceBatt = new Service.BatteryService('Battery', 'AirFresher');
         this.serviceBatt
             .setCharacteristic(Characteristic.BatteryLevel, '100')
-            .setCharacteristic(
-                Characteristic.ChargingState,
-                Characteristic.ChargingState.CHARGING
-            )
-            .setCharacteristic(
-                Characteristic.StatusLowBattery,
-                Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL
-            )
+            .setCharacteristic(Characteristic.ChargingState, Characteristic.ChargingState.CHARGING)
+            .setCharacteristic(Characteristic.StatusLowBattery, Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL)
             .setCharacteristic(Characteristic.Name, 'Genie Battery');
     }
 
+    // ---- FILTER SERVICE + REPLACE FILTER ----
     this.serviceFilter = new Service.FilterMaintenance('Filter', 'AirFresher');
     this.serviceFilter.setCharacteristic(Characteristic.Name, this.fragance);
 
@@ -165,6 +145,30 @@ function RitualsAccessory(log, config) {
                 : Characteristic.FilterChangeIndication.FILTER_OK;
             callback(null, indication);
         });
+
+    // Add replace-filter/reset indication
+    this.serviceFilter.addOptionalCharacteristic(Characteristic.ResetFilterIndication);
+
+    this.serviceFilter
+        .getCharacteristic(Characteristic.ResetFilterIndication)
+        .on('set', (value, callback) => {
+            if (value === 1) {
+                this.log.info(`${this.name} :: Filter reset requested by user`);
+
+                // Clear relevant cache so the next call fetches updated status
+                delete this.cacheTimestamp.getFillState;
+                delete this.cache.fill_level;
+
+                this.log.info(`Filter replacement acknowledged for ${this.name}`);
+
+                // Reset back to 0 for HomeKit UI
+                setTimeout(() => {
+                    this.serviceFilter.getCharacteristic(Characteristic.ResetFilterIndication).updateValue(0);
+                }, 1000);
+            }
+            callback();
+        });
+
 
     this.services.push(this.service);
     this.services.push(this.serviceInfo);
